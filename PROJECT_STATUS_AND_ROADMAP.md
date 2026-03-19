@@ -577,14 +577,70 @@ SQLite 的接入意义不仅是补齐一个方言，更重要的是为未来：
 
 ### 阶段三：执行层建设
 
-目标：从“生成 SQL”走向“生成并执行 CRUD”。
+目标：从“统一元数据 + 统一规划模型 + 统一 DDL 来源”进一步走向“统一执行入口”，让系统具备真正的平台级 CRUD / Schema 执行能力。
 
-建议工作：
+当前判断：阶段三已经具备进入实施的前置条件，但执行层仍然完全空白，下一步重点不再是继续增加 builder，而是建立真正的 runtime execution stack。
+
+本阶段已具备的基础：
+
+- `engine` 已具备稳定的多方言 SQL / DDL 构建能力
+- `metadata_driver` 已能基于显式过滤 AST、关系、聚合、HAVING 生成查询与写入 SQL
+- `metadata` 已具备平台级实体模型
+- `metadata_plan` 已具备 `QueryPlan / WritePlan / DeletePlan / SchemaPlan / PermissionPlan`
+- `metadata_mapping` 已具备标准元数据持久化映射与 DDL 来源统一能力
+
+本阶段的核心工作应调整为：
+
+- 引入真正的数据库执行器，而不再只返回 SQL 字符串
+- 建立多数据源生命周期管理能力，使 `MetaDatasource` 可以被解析、缓存、连接、回收
+- 建立执行期事务与错误边界，明确单语句执行、批处理执行、跨步骤事务执行的责任分层
+- 建立 CRUD / Schema / Metadata 三类执行服务，使规划层输出能够被统一消费
+- 建立 SQL 预览与 SQL 执行分离机制，避免预览能力与真实执行强耦合
+
+建议本阶段拆成四个执行子层：
+
+#### 子层一：连接与资源管理
 
 - 引入 `sqlx`
-- 建立 DatasourceManager
-- 增加事务管理
-- 建立 CRUD 执行服务
+- 建立 `DatasourceManager`
+- 建立连接池缓存策略
+- 建立数据源健康检查与失效恢复机制
+
+#### 子层二：执行上下文与事务管理
+
+- 定义 `ExecutionContext`
+- 定义 `ExecutionOptions`
+- 支持只读执行、写执行、批量执行
+- 支持事务开启、提交、回滚与嵌套边界控制
+
+#### 子层三：计划执行器
+
+- 建立 `QueryPlanExecutor`
+- 建立 `WritePlanExecutor`
+- 建立 `DeletePlanExecutor`
+- 建立 `SchemaPlanExecutor`
+- 建立 `MetadataCatalogExecutor`
+
+#### 子层四：结果与错误模型
+
+- 统一 `QueryResult`
+- 统一 `WriteResult`
+- 统一 `DeleteResult`
+- 统一 `SchemaResult`
+- 统一数据库错误、规划错误、权限错误、映射错误的错误模型
+
+建议优先交付顺序：
+
+- 先落 `DatasourceManager + QueryPlanExecutor`
+- 再落 `WritePlanExecutor + DeletePlanExecutor`
+- 最后落 `SchemaPlanExecutor + MetadataCatalogExecutor`
+
+阶段三验收标准建议补充为：
+
+- `QueryPlan / WritePlan / DeletePlan / SchemaPlan` 都能够通过统一执行层完成真实数据库执行
+- 多数据源连接、事务、错误处理具备统一的 runtime 边界，不依赖调用方自行拼接
+- SQL 预览、SQL 执行、元数据管理三条能力链路已经明确分离，但共享同一套规划与 schema 来源
+- 阶段四接口化时，上层 API 只需要面向执行服务，不再直接感知底层 builder 细节
 
 ### 阶段四：平台接口化
 
