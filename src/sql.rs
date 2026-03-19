@@ -1,5 +1,24 @@
 static AND: &'static str = ") \n AND (";
 static OR: &'static str = ") \n OR (";
+
+fn populate_statement(sql: &mut SQLStatement, sql_provider: &mut dyn SQLProvider) {
+    sql.statement_type = sql_provider.get_statement_type();
+    sql.tables = sql_provider.get_tables();
+    sql.select = sql_provider.get_select();
+    sql.join = sql_provider.get_join();
+    sql.inner_join = sql_provider.get_inner_join();
+    sql.outer_join = sql_provider.get_outer_join();
+    sql.left_outer_join = sql_provider.get_left_outer_join();
+    sql.right_outer_join = sql_provider.get_right_outer_join();
+    sql.wheres = sql_provider.get_where();
+    sql.group_by = sql_provider.get_group_by();
+    sql.having = sql_provider.get_having();
+    sql.order_by = sql_provider.get_order_by();
+    sql.columns = sql_provider.get_columns();
+    sql.values = sql_provider.get_values();
+    sql.sets = sql_provider.get_sets();
+}
+
 pub struct SQLExplorer {
     sql: SQLStatement,
     sql_provider: Box<dyn SQLProvider>,
@@ -34,48 +53,14 @@ impl SQLExplorer {
     }
 
     pub fn get_sql(&mut self) -> String {
-        self.sql.statement_type = self.sql_provider.get_statement_type();
-        self.sql.tables = self.sql_provider.get_tables();
-        self.sql.select = self.sql_provider.get_select();
-        self.sql.join = self.sql_provider.get_join();
-        self.sql.inner_join = self.sql_provider.get_inner_join();
-        self.sql.outer_join = self.sql_provider.get_outer_join();
-        self.sql.left_outer_join = self.sql_provider.get_left_outer_join();
-        self.sql.right_outer_join = self.sql_provider.get_right_outer_join();
-        self.sql.wheres = self.sql_provider.get_where();
-        self.sql.group_by = self.sql_provider.get_group_by();
-        self.sql.having = self.sql_provider.get_having();
-        self.sql.order_by = self.sql_provider.get_order_by();
-
-        self.sql.columns = self.sql_provider.get_columns();
-        self.sql.values = self.sql_provider.get_values();
-
-        self.sql.sets = self.sql_provider.get_sets();
-
+        populate_statement(&mut self.sql, self.sql_provider.as_mut());
         self.sql.sql()
     }
 }
 
 pub fn get_sql(sql_provider: &mut impl SQLProvider) -> String {
     let mut sql = SQLStatement::new(sql_provider.get_statement_type());
-    sql.statement_type = sql_provider.get_statement_type();
-    sql.tables = sql_provider.get_tables();
-    sql.select = sql_provider.get_select();
-    sql.join = sql_provider.get_join();
-    sql.inner_join = sql_provider.get_inner_join();
-    sql.outer_join = sql_provider.get_outer_join();
-    sql.left_outer_join = sql_provider.get_left_outer_join();
-    sql.right_outer_join = sql_provider.get_right_outer_join();
-    sql.wheres = sql_provider.get_where();
-    sql.group_by = sql_provider.get_group_by();
-    sql.having = sql_provider.get_having();
-    sql.order_by = sql_provider.get_order_by();
-
-    sql.columns = sql_provider.get_columns();
-    sql.values = sql_provider.get_values();
-
-    sql.sets = sql_provider.get_sets();
-
+    populate_statement(&mut sql, sql_provider);
     sql.sql()
 }
 
@@ -101,7 +86,6 @@ pub struct SQLStatement {
     having: Vec<String>,
     group_by: Vec<String>,
     order_by: Vec<String>,
-    last_list: Vec<String>,
     // insert
     columns: Vec<String>,
     values: Vec<String>,
@@ -126,7 +110,6 @@ impl SQLStatement {
             having: Vec::new(),
             group_by: Vec::new(),
             order_by: Vec::new(),
-            last_list: Vec::new(),
             columns: Vec::new(),
             values: Vec::new(),
             distinct: false,
@@ -137,30 +120,30 @@ impl SQLStatement {
         &self,
         builder: &mut String,
         keyword: &str,
-        parts: &Vec<String>,
+        parts: &[String],
         open: &str,
         close: &str,
         conjunction: &str,
     ) {
         if parts.is_empty() {
             return;
-        } else {
-            if !builder.is_empty() {
-                builder.push('\n');
-            }
-            builder.push_str(&keyword);
-            builder.push(' ');
-            builder.push_str(&open);
-            let mut last = "________";
-            for (i, part) in parts.iter().enumerate() {
-                if i > 0 && !part.eq(AND) && !part.eq(OR) && !last.eq(AND) && !last.eq(OR) {
-                    builder.push_str(&conjunction);
-                }
-                builder.push_str(part);
-                last = part;
-            }
-            builder.push_str(&close);
         }
+
+        if !builder.is_empty() {
+            builder.push('\n');
+        }
+        builder.push_str(keyword);
+        builder.push(' ');
+        builder.push_str(open);
+        let mut last = "________";
+        for (i, part) in parts.iter().enumerate() {
+            if i > 0 && !part.eq(AND) && !part.eq(OR) && !last.eq(AND) && !last.eq(OR) {
+                builder.push_str(conjunction);
+            }
+            builder.push_str(part);
+            last = part;
+        }
+        builder.push_str(close);
     }
 
     fn build_select(&mut self, mut builder: String) -> String {
@@ -301,5 +284,42 @@ mod sql_statement_tests {
         sql.wheres.push("id = 1".to_string());
         let rst = sql.sql();
         assert_eq!(rst, "DELETE FROM c_store\nWHERE (id = 1)".to_string());
+    }
+
+    #[test]
+    fn build_where_clause_preserves_explicit_logical_group_markers() {
+        let mut sql = SQLStatement::new(StatementType::SELECT);
+        sql.select.push("id".to_string());
+        sql.tables.push("c_store".to_string());
+        sql.wheres.push("type = 1".to_string());
+        sql.wheres.push(OR.to_string());
+        sql.wheres.push("type = 2".to_string());
+        sql.wheres.push(AND.to_string());
+        sql.wheres.push("enabled = 'Y'".to_string());
+
+        let rst = sql.sql();
+
+        assert_eq!(
+            rst,
+            "SELECT id\nFROM c_store\nWHERE (type = 1) \n OR (type = 2) \n AND (enabled = 'Y')"
+                .to_string()
+        );
+    }
+
+    #[test]
+    fn build_select_with_left_outer_join_test() {
+        let mut sql = SQLStatement::new(StatementType::SELECT);
+        sql.select.push("m_retail.id".to_string());
+        sql.tables.push("m_retail".to_string());
+        sql.left_outer_join
+            .push("c_store s ON m_retail.c_store_id = s.id".to_string());
+
+        let rst = sql.sql();
+
+        assert_eq!(
+            rst,
+            "SELECT m_retail.id\nFROM m_retail\nLEFT OUTER JOIN c_store s ON m_retail.c_store_id = s.id"
+                .to_string()
+        );
     }
 }
