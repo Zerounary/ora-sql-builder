@@ -1,9 +1,14 @@
 mod builders;
+mod ddl;
 mod dialect;
 mod facade;
 mod query;
 
 pub use builders::{DeleteBuilder, InsertBuilder, SelectBuilder, UpdateBuilder};
+pub use ddl::{
+    AlterTableBuilder, ColumnDefinition, CreateTableBuilder, DdlValue, DropTableBuilder,
+    ForeignKeyDefinition,
+};
 pub use dialect::{
     MySqlDialect, OracleDialect, PostgresDialect, SqlDialect, SqlServerDialect, SqliteDialect,
 };
@@ -278,5 +283,75 @@ mod tests {
                 .to_string()
         );
         assert_eq!(query.params, vec![json!(37), json!(1), json!(10)]);
+    }
+
+    #[test]
+    fn build_create_table_supports_metadata_driven_schema_definition() {
+        let engine = MetaSqlEngine;
+        let dialect = PostgresDialect;
+        let query = engine.build_create_table(
+            &dialect,
+            CreateTableBuilder::new("meta_export_profile")
+                .if_not_exists()
+                .column(ColumnDefinition::new("id", "BIGINT").not_null())
+                .column(ColumnDefinition::new("profile_code", "VARCHAR(64)").not_null().unique())
+                .column(
+                    ColumnDefinition::new("enabled", "BOOLEAN")
+                        .not_null()
+                        .default_value(true),
+                )
+                .column(ColumnDefinition::new("datasource_id", "BIGINT").not_null())
+                .primary_key(vec!["id"])
+                .foreign_key(
+                    ForeignKeyDefinition::new(
+                        vec!["datasource_id"],
+                        "meta_datasource",
+                        vec!["id"],
+                    )
+                    .name("fk_meta_export_profile_datasource")
+                    .on_delete("CASCADE"),
+                ),
+        );
+
+        assert_eq!(
+            query.sql,
+            "CREATE TABLE IF NOT EXISTS meta_export_profile (id BIGINT NOT NULL, profile_code VARCHAR(64) NOT NULL UNIQUE, enabled BOOLEAN NOT NULL DEFAULT TRUE, datasource_id BIGINT NOT NULL, PRIMARY KEY (id), CONSTRAINT fk_meta_export_profile_datasource FOREIGN KEY (datasource_id) REFERENCES meta_datasource (id) ON DELETE CASCADE)"
+                .to_string()
+        );
+        assert_eq!(query.params, Vec::<Value>::new());
+    }
+
+    #[test]
+    fn build_alter_and_drop_table_support_schema_evolution() {
+        let engine = MetaSqlEngine;
+        let dialect = SqliteDialect;
+        let alter = engine.build_alter_table(
+            &dialect,
+            AlterTableBuilder::new("meta_export_profile")
+                .add_column(
+                    ColumnDefinition::new("tenant_scope", "VARCHAR(128)")
+                        .not_null()
+                        .default_value("ALL"),
+                )
+                .rename_column("profile_code", "profile_key")
+                .add_constraint("ADD CONSTRAINT uq_meta_export_profile_key UNIQUE (profile_key)"),
+        );
+        let drop = engine.build_drop_table(
+            &dialect,
+            DropTableBuilder::new("meta_export_profile_backup").if_exists(),
+        );
+
+        assert_eq!(
+            alter.sql,
+            "ALTER TABLE meta_export_profile ADD COLUMN tenant_scope VARCHAR(128) NOT NULL DEFAULT 'ALL'; ALTER TABLE meta_export_profile RENAME COLUMN profile_code TO profile_key; ALTER TABLE meta_export_profile ADD CONSTRAINT uq_meta_export_profile_key UNIQUE (profile_key)"
+                .to_string()
+        );
+        assert_eq!(alter.params, Vec::<Value>::new());
+
+        assert_eq!(
+            drop.sql,
+            "DROP TABLE IF EXISTS meta_export_profile_backup".to_string()
+        );
+        assert_eq!(drop.params, Vec::<Value>::new());
     }
 }
