@@ -238,6 +238,26 @@ impl Predicate {
         Self::Raw(sql.into())
     }
 
+    pub(crate) fn parameter_count(&self) -> usize {
+        match self {
+            Predicate::Eq { .. }
+            | Predicate::Ne { .. }
+            | Predicate::Gt { .. }
+            | Predicate::Like { .. }
+            | Predicate::Gte { .. }
+            | Predicate::Lt { .. }
+            | Predicate::Lte { .. } => 1,
+            Predicate::In { values, .. } => values.len(),
+            Predicate::Between { .. } => 2,
+            Predicate::IsNull { .. } | Predicate::IsNotNull { .. } | Predicate::Raw(_) => 0,
+            Predicate::Exists { params, .. } | Predicate::Custom { params, .. } => params.len(),
+            Predicate::And(predicates) | Predicate::Or(predicates) => {
+                predicates.iter().map(Predicate::parameter_count).sum()
+            }
+            Predicate::Not(predicate) => predicate.parameter_count(),
+        }
+    }
+
     pub(crate) fn render(&self, dialect: &dyn SqlDialect, params: &mut Vec<Value>) -> String {
         match self {
             Predicate::Eq { field, value } => {
@@ -335,11 +355,9 @@ fn render_parameterized_sql(
     dialect: &dyn SqlDialect,
     params: &mut Vec<Value>,
 ) -> String {
-    for value in custom_params.iter().cloned() {
-        params.push(value);
-    }
+    params.extend(custom_params.iter().cloned());
     let mut next_index = params.len() - custom_params.len();
-    let mut rendered = String::new();
+    let mut rendered = String::with_capacity(sql.len() + custom_params.len() * 4);
     for ch in sql.chars() {
         if ch == '?' {
             next_index += 1;

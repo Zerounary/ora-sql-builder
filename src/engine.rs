@@ -18,6 +18,11 @@ pub use query::{BuiltQuery, JoinType, Pagination, Predicate, Relation, TableRef}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::hint::black_box;
+    use std::mem::size_of;
+    use std::sync::Arc;
+    use std::thread;
+    use std::time::{Duration, Instant};
     use serde_json::json;
     use serde_json::Value;
     use similar_asserts::assert_eq;
@@ -353,5 +358,138 @@ mod tests {
             "DROP TABLE IF EXISTS meta_export_profile_backup".to_string()
         );
         assert_eq!(drop.params, Vec::<Value>::new());
+    }
+
+    #[test]
+    #[ignore]
+    fn concurrent_builder_performance_report() {
+        let report = vec![
+            benchmark_case("select", || {
+                black_box(
+                    SelectBuilder::new(TableRef::new("m_retail").alias("mr"))
+                        .select("mr.id")
+                        .select("mr.code")
+                        .relation(Relation::new(
+                            JoinType::Left,
+                            "mr",
+                            "store_id",
+                            TableRef::new("c_store").alias("store"),
+                            "id",
+                        ))
+                        .predicate(Predicate::and(vec![
+                            Predicate::eq("mr.owner_id", 893),
+                            Predicate::or(vec![
+                                Predicate::like("store.name", "%旗舰%"),
+                                Predicate::like("store.name", "%门店%"),
+                            ]),
+                            Predicate::between("mr.amt", 10, 99),
+                            Predicate::exists(
+                                "SELECT 1 FROM m_retail_line line WHERE line.bill_id = mr.id AND line.enabled = ?",
+                                vec![json!("Y")],
+                            ),
+                        ]))
+                        .order_by("mr.id DESC")
+                        .build(&PostgresDialect),
+                );
+            }),
+            benchmark_case("insert", || {
+                black_box(
+                    InsertBuilder::new("m_retail")
+                        .value("id", 1)
+                        .value("code", "RE-001")
+                        .value("name", "性能测试")
+                        .value("enabled", true)
+                        .raw_value("created_at", "CURRENT_TIMESTAMP")
+                        .build(&SqliteDialect),
+                );
+            }),
+            benchmark_case("update", || {
+                black_box(
+                    UpdateBuilder::new("m_retail")
+                        .set("name", "性能测试-更新")
+                        .set("enabled", false)
+                        .set_raw("updated_at", "CURRENT_TIMESTAMP")
+                        .predicate(Predicate::eq("id", 1))
+                        .build(&PostgresDialect),
+                );
+            }),
+            benchmark_case("delete", || {
+                black_box(
+                    DeleteBuilder::new("m_retail")
+                        .predicate(Predicate::raw("tenant_id = 37"))
+                        .predicate(Predicate::eq("id", 1))
+                        .build(&PostgresDialect),
+                );
+            }),
+            benchmark_case("ddl_create", || {
+                black_box(
+                    CreateTableBuilder::new("meta_perf_case")
+                        .if_not_exists()
+                        .column(ColumnDefinition::new("id", "BIGINT").not_null())
+                        .column(ColumnDefinition::new("code", "VARCHAR(64)").not_null().unique())
+                        .primary_key(vec!["id"])
+                        .build(&PostgresDialect),
+                );
+            }),
+        ];
+
+        println!("engine concurrent performance report");
+        println!(
+            "struct_sizes => SelectBuilder={}B, InsertBuilder={}B, UpdateBuilder={}B, DeleteBuilder={}B, CreateTableBuilder={}B, Predicate={}B, Relation={}B, TableRef={}B, BuiltQuery={}B",
+            size_of::<SelectBuilder>(),
+            size_of::<InsertBuilder>(),
+            size_of::<UpdateBuilder>(),
+            size_of::<DeleteBuilder>(),
+            size_of::<CreateTableBuilder>(),
+            size_of::<Predicate>(),
+            size_of::<Relation>(),
+            size_of::<TableRef>(),
+            size_of::<BuiltQuery>(),
+        );
+        for line in report {
+            println!("{}", line);
+        }
+    }
+
+    fn benchmark_case<F>(name: &str, task: F) -> String
+    where
+        F: Fn() + Send + Sync + 'static,
+    {
+        const THREADS: usize = 8;
+        const ITERATIONS_PER_THREAD: usize = 5_000;
+
+        let task = Arc::new(task);
+        let start = Instant::now();
+        let mut handles = Vec::with_capacity(THREADS);
+        for _ in 0..THREADS {
+            let task = Arc::clone(&task);
+            handles.push(thread::spawn(move || {
+                let thread_start = Instant::now();
+                for _ in 0..ITERATIONS_PER_THREAD {
+                    task();
+                }
+                thread_start.elapsed()
+            }));
+        }
+
+        let mut longest_thread = Duration::ZERO;
+        for handle in handles {
+            let elapsed = handle.join().expect("engine performance worker panicked");
+            if elapsed > longest_thread {
+                longest_thread = elapsed;
+            }
+        }
+        let total_elapsed = start.elapsed();
+        let total_ops = THREADS * ITERATIONS_PER_THREAD;
+        let avg_ns = total_elapsed.as_nanos() / total_ops as u128;
+
+        format!(
+            "case={} total_ops={} total_elapsed_ms={} longest_thread_ms={} avg_ns_per_op={}",
+            name,
+            total_ops,
+            total_elapsed.as_millis(),
+            longest_thread.as_millis(),
+            avg_ns,
+        )
     }
 }

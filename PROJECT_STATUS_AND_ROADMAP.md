@@ -523,13 +523,57 @@ SQLite 的接入意义不仅是补齐一个方言，更重要的是为未来：
 
 ### 阶段二：统一元数据平台模型
 
-目标：建立真正的平台级元数据结构。
+目标：把当前已经出现的“查询元数据模型”“治理元数据模型”“DDL schema 模型”进一步统一为平台级标准元数据体系。
 
-建议工作：
+当前判断：阶段二已具备启动条件，并且已经有一部分前置成果，不再是从零开始。
 
-- 建立表 / 字段 / 关系 / 约束 / 策略的标准模型
-- 抽象多数据源配置模型
-- 定义平台内部统一 QueryPlan / WritePlan
+本阶段已具备的基础：
+
+- `metadata` 已具备查询驱动所需的字段模型、权限 mask、lookup、link、显式过滤 AST
+- `metadata` 中已经新增标准 schema 描述能力，包括 `MetadataColumnType`、`MetadataColumnSchema`、`MetadataForeignKeySchema`、`MetadataTableSchema`
+- 已提供 `standard_metadata_tables()`，说明标准元数据表结构已经有了第一版代码化表达
+- `engine` DDL Builder 已可直接承接这些标准 schema 对象生成建表语句
+
+本阶段的核心工作应调整为：
+
+- 将当前分散的查询模型、治理模型、DDL schema 模型进一步统一，避免未来出现多套平行元数据描述
+- 补齐平台级实体：数据源、表、字段、关系、约束、索引、权限、策略、导入模板、导出模板
+- 建立“配置模型”与“运行时模型”的边界，明确哪些结构用于存储，哪些结构用于执行期规划
+- 抽象多数据源配置模型，并让标准元数据表结构与多数据源生命周期管理相衔接
+- 定义平台内部统一 `QueryPlan / WritePlan / DeletePlan / SchemaPlan`
+
+建议本阶段进一步拆成三条主线：
+
+#### 主线一：标准元数据实体统一
+
+- 统一 `MetaDatasource`
+- 统一 `MetaTable`
+- 统一 `MetaColumn`
+- 统一 `MetaRelation`
+- 统一 `MetaPolicy`
+- 统一 `MetaImportProfile`
+- 统一 `MetaExportProfile`
+
+#### 主线二：运行时规划模型统一
+
+- 定义 `QueryPlan`
+- 定义 `WritePlan`
+- 定义 `DeletePlan`
+- 定义 `SchemaPlan`
+- 定义 `PermissionPlan`
+
+#### 主线三：标准元数据持久化对齐
+
+- 让 `standard_metadata_tables()` 覆盖更完整的平台表集合
+- 增加元数据模型与标准元数据表之间的映射层
+- 让 DDL 生成、元数据管理和未来执行层使用同一套 schema 描述来源
+
+阶段二验收标准建议补充为：
+
+- 仓库中只保留一套权威的标准元数据平台模型，不再出现查询模型、治理模型、DDL 模型长期分裂的情况
+- 标准元数据表结构能够完整表达平台核心实体，并可直接生成 DDL
+- `QueryPlan / WritePlan / SchemaPlan` 的职责边界明确，可以稳定承接阶段三执行层建设
+- 文档、示例、代码中的元数据术语与结构保持统一，对外表达一致
 
 ### 阶段三：执行层建设
 

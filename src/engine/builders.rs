@@ -15,6 +15,13 @@ impl SqlValue {
             SqlValue::Raw(sql) => sql,
         }
     }
+
+    fn parameter_count(&self) -> usize {
+        match self {
+            SqlValue::Param(_) => 1,
+            SqlValue::Raw(_) => 0,
+        }
+    }
 }
 
 pub struct SelectBuilder {
@@ -84,7 +91,17 @@ impl SelectBuilder {
     }
 
     pub fn build(self, dialect: &dyn SqlDialect) -> BuiltQuery {
-        let mut params = Vec::new();
+        let estimated_params = self
+            .predicates
+            .iter()
+            .map(Predicate::parameter_count)
+            .sum::<usize>()
+            + self
+                .having
+                .iter()
+                .map(Predicate::parameter_count)
+                .sum::<usize>();
+        let mut params = Vec::with_capacity(estimated_params);
         let mut sql = format!(
             "SELECT {} FROM {}",
             if self.projections.is_empty() {
@@ -168,7 +185,12 @@ impl InsertBuilder {
     }
 
     pub fn build(self, dialect: &dyn SqlDialect) -> BuiltQuery {
-        let mut params = Vec::new();
+        let mut params = Vec::with_capacity(
+            self.assignments
+                .iter()
+                .map(|(_, value)| value.parameter_count())
+                .sum(),
+        );
         let columns = self
             .assignments
             .iter()
@@ -225,7 +247,17 @@ impl UpdateBuilder {
     }
 
     pub fn build(self, dialect: &dyn SqlDialect) -> BuiltQuery {
-        let mut params = Vec::new();
+        let mut params = Vec::with_capacity(
+            self.assignments
+                .iter()
+                .map(|(_, value)| value.parameter_count())
+                .sum::<usize>()
+                + self
+                    .predicates
+                    .iter()
+                    .map(Predicate::parameter_count)
+                    .sum::<usize>(),
+        );
         let assignments = self
             .assignments
             .into_iter()
@@ -267,7 +299,12 @@ impl DeleteBuilder {
     }
 
     pub fn build(self, dialect: &dyn SqlDialect) -> BuiltQuery {
-        let mut params = Vec::new();
+        let mut params = Vec::with_capacity(
+            self.predicates
+                .iter()
+                .map(Predicate::parameter_count)
+                .sum(),
+        );
         let mut sql = format!("DELETE FROM {}", self.table);
         if !self.predicates.is_empty() {
             sql.push_str(" WHERE ");
