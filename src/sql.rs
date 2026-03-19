@@ -64,7 +64,7 @@ pub fn get_sql(sql_provider: &mut impl SQLProvider) -> String {
     sql.sql()
 }
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum StatementType {
     SELECT,
     INSERT,

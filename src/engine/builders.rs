@@ -3,6 +3,20 @@ use serde_json::Value;
 use super::dialect::SqlDialect;
 use super::query::{push_param, BuiltQuery, Pagination, Predicate, Relation, TableRef};
 
+enum SqlValue {
+    Param(Value),
+    Raw(String),
+}
+
+impl SqlValue {
+    fn render(self, dialect: &dyn SqlDialect, params: &mut Vec<Value>) -> String {
+        match self {
+            SqlValue::Param(value) => push_param(dialect, params, value),
+            SqlValue::Raw(sql) => sql,
+        }
+    }
+}
+
 pub struct SelectBuilder {
     from: TableRef,
     projections: Vec<String>,
@@ -113,39 +127,48 @@ impl SelectBuilder {
 
 pub struct InsertBuilder {
     table: String,
-    columns: Vec<String>,
-    values: Vec<Value>,
+    assignments: Vec<(String, SqlValue)>,
 }
 
 impl InsertBuilder {
     pub fn new(table: impl Into<String>) -> Self {
         Self {
             table: table.into(),
-            columns: Vec::new(),
-            values: Vec::new(),
+            assignments: Vec::new(),
         }
     }
 
     pub fn value(mut self, column: impl Into<String>, value: impl Into<Value>) -> Self {
-        self.columns.push(column.into());
-        self.values.push(value.into());
+        self.assignments
+            .push((column.into(), SqlValue::Param(value.into())));
+        self
+    }
+
+    pub fn raw_value(mut self, column: impl Into<String>, sql: impl Into<String>) -> Self {
+        self.assignments.push((column.into(), SqlValue::Raw(sql.into())));
         self
     }
 
     pub fn build(self, dialect: &dyn SqlDialect) -> BuiltQuery {
         let mut params = Vec::new();
-        let placeholders = self
-            .values
+        let columns = self
+            .assignments
+            .iter()
+            .map(|(column, _)| column.clone())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let values = self
+            .assignments
             .into_iter()
-            .map(|value| push_param(dialect, &mut params, value))
+            .map(|(_, value)| value.render(dialect, &mut params))
             .collect::<Vec<_>>()
             .join(", ");
         BuiltQuery {
             sql: format!(
                 "INSERT INTO {} ({}) VALUES ({})",
                 self.table,
-                self.columns.join(", "),
-                placeholders
+                columns,
+                values
             ),
             params,
         }
@@ -154,7 +177,7 @@ impl InsertBuilder {
 
 pub struct UpdateBuilder {
     table: String,
-    assignments: Vec<(String, Value)>,
+    assignments: Vec<(String, SqlValue)>,
     predicates: Vec<Predicate>,
 }
 
@@ -168,7 +191,13 @@ impl UpdateBuilder {
     }
 
     pub fn set(mut self, column: impl Into<String>, value: impl Into<Value>) -> Self {
-        self.assignments.push((column.into(), value.into()));
+        self.assignments
+            .push((column.into(), SqlValue::Param(value.into())));
+        self
+    }
+
+    pub fn set_raw(mut self, column: impl Into<String>, sql: impl Into<String>) -> Self {
+        self.assignments.push((column.into(), SqlValue::Raw(sql.into())));
         self
     }
 
@@ -182,7 +211,7 @@ impl UpdateBuilder {
         let assignments = self
             .assignments
             .into_iter()
-            .map(|(column, value)| format!("{} = {}", column, push_param(dialect, &mut params, value)))
+            .map(|(column, value)| format!("{} = {}", column, value.render(dialect, &mut params)))
             .collect::<Vec<_>>()
             .join(", ");
         let mut sql = format!("UPDATE {} SET {}", self.table, assignments);

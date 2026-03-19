@@ -188,4 +188,72 @@ mod tests {
         );
         assert_eq!(query.params, Vec::<Value>::new());
     }
+
+    #[test]
+    fn build_select_supports_advanced_predicates() {
+        let dialect = PostgresDialect;
+        let query = SelectBuilder::new(TableRef::new("m_retail").alias("mr"))
+            .select("mr.id")
+            .predicate(Predicate::eq("mr.owner_id", 893))
+            .predicate(Predicate::ne("mr.status", "CANCELLED"))
+            .predicate(Predicate::gt("mr.qty", 0))
+            .predicate(Predicate::gte("mr.bill_date", "2026-01-01"))
+            .predicate(Predicate::lt("mr.bill_date", "2026-02-01"))
+            .predicate(Predicate::lte("mr.bill_date", "2026-01-31"))
+            .predicate(Predicate::between("mr.amt", 10, 99))
+            .predicate(Predicate::exists(
+                "SELECT 1 FROM c_store s WHERE s.id = mr.store_id AND s.enabled = ?",
+                vec![json!("Y")],
+            ))
+            .build(&dialect);
+
+        assert_eq!(
+            query.sql,
+            "SELECT mr.id FROM m_retail mr WHERE mr.owner_id = $1 AND mr.status != $2 AND mr.qty > $3 AND mr.bill_date >= $4 AND mr.bill_date < $5 AND mr.bill_date <= $6 AND mr.amt BETWEEN $7 AND $8 AND EXISTS (SELECT 1 FROM c_store s WHERE s.id = mr.store_id AND s.enabled = $9)"
+                .to_string()
+        );
+        assert_eq!(
+            query.params,
+            vec![
+                json!(893),
+                json!("CANCELLED"),
+                json!(0),
+                json!("2026-01-01"),
+                json!("2026-02-01"),
+                json!("2026-01-31"),
+                json!(10),
+                json!(99),
+                json!("Y"),
+            ]
+        );
+    }
+
+    #[test]
+    fn build_insert_and_update_support_raw_sql_expressions() {
+        let dialect = OracleDialect;
+        let insert = InsertBuilder::new("m_retail")
+            .value("id", 1)
+            .raw_value("created_at", "sysdate")
+            .raw_value("docno", "get_sequenceno('RE', 37)")
+            .build(&dialect);
+        let update = UpdateBuilder::new("m_retail")
+            .set("modifierid", 893)
+            .set_raw("modifieddate", "sysdate")
+            .predicate(Predicate::eq("id", 1))
+            .build(&dialect);
+
+        assert_eq!(
+            insert.sql,
+            "INSERT INTO m_retail (id, created_at, docno) VALUES (:1, sysdate, get_sequenceno('RE', 37))"
+                .to_string()
+        );
+        assert_eq!(insert.params, vec![json!(1)]);
+
+        assert_eq!(
+            update.sql,
+            "UPDATE m_retail SET modifierid = :1, modifieddate = sysdate WHERE id = :2"
+                .to_string()
+        );
+        assert_eq!(update.params, vec![json!(893), json!(1)]);
+    }
 }
