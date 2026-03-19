@@ -1,0 +1,39 @@
+{
+  "datasources": [
+    {
+      "id": 101,
+      "code": "mysql_demo",
+      "name": "MySQL Demo Datasource",
+      "database_kind": "mysql",
+      "connection_uri": "mysql://demo:demo@127.0.0.1:3306/ora_sql_builder_demo"
+    },
+    {
+      "id": 102,
+      "code": "postgres_demo",
+      "name": "PostgreSQL Demo Datasource",
+      "database_kind": "postgres",
+      "connection_uri": "postgres://demo:demo@127.0.0.1:5432/ora_sql_builder_demo"
+    },
+    {
+      "id": 103,
+      "code": "oracle_demo",
+      "name": "Oracle Demo Datasource",
+      "database_kind": "oracle",
+      "connection_uri": "oracle://demo:demo@127.0.0.1:1521/XEPDB1"
+    },
+    {
+      "id": 104,
+      "code": "sqlserver_demo",
+      "name": "SQL Server Demo Datasource",
+      "database_kind": "sqlserver",
+      "connection_uri": "sqlserver://demo:demo@127.0.0.1:1433/ora_sql_builder_demo"
+    },
+    {
+      "id": 105,
+      "code": "sqlite_demo",
+      "name": "SQLite Demo Datasource",
+      "database_kind": "sqlite",
+      "connection_uri": "sqlite::memory:"
+    }
+  ]
+}

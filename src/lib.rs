@@ -1,5 +1,6 @@
 pub mod portal_provider;
 pub mod portal_provider_adapter;
+pub mod metadata_demo;
 pub mod engine;
 pub mod execution;
 pub mod metadata;
