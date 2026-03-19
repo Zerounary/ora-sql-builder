@@ -4,7 +4,9 @@ mod facade;
 mod query;
 
 pub use builders::{DeleteBuilder, InsertBuilder, SelectBuilder, UpdateBuilder};
-pub use dialect::{MySqlDialect, OracleDialect, PostgresDialect, SqlDialect, SqlServerDialect};
+pub use dialect::{
+    MySqlDialect, OracleDialect, PostgresDialect, SqlDialect, SqlServerDialect, SqliteDialect,
+};
 pub use facade::MetaSqlEngine;
 pub use query::{BuiltQuery, JoinType, Pagination, Predicate, Relation, TableRef};
 
@@ -255,5 +257,26 @@ mod tests {
                 .to_string()
         );
         assert_eq!(update.params, vec![json!(893), json!(1)]);
+    }
+
+    #[test]
+    fn build_sqlite_select_uses_question_mark_placeholders_and_limit_offset() {
+        let dialect = SqliteDialect;
+        let query = SelectBuilder::new(TableRef::new("meta_table"))
+            .select("id")
+            .predicate(Predicate::eq("owner_id", 37))
+            .predicate(Predicate::between("sort_no", 1, 10))
+            .paginate(Pagination {
+                offset: 5,
+                limit: 10,
+            })
+            .build(&dialect);
+
+        assert_eq!(
+            query.sql,
+            "SELECT id FROM meta_table WHERE owner_id = ? AND sort_no BETWEEN ? AND ? LIMIT 10 OFFSET 5"
+                .to_string()
+        );
+        assert_eq!(query.params, vec![json!(37), json!(1), json!(10)]);
     }
 }

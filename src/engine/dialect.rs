@@ -9,6 +9,7 @@ pub struct MySqlDialect;
 pub struct PostgresDialect;
 pub struct OracleDialect;
 pub struct SqlServerDialect;
+pub struct SqliteDialect;
 
 impl SqlDialect for MySqlDialect {
     fn placeholder(&self, _index: usize) -> String {
@@ -64,6 +65,19 @@ impl SqlDialect for SqlServerDialect {
         format!(
             "{} OFFSET {} ROWS FETCH NEXT {} ROWS ONLY",
             sql, pagination.offset, pagination.limit
+        )
+    }
+}
+
+impl SqlDialect for SqliteDialect {
+    fn placeholder(&self, _index: usize) -> String {
+        "?".to_string()
+    }
+
+    fn paginate(&self, sql: String, pagination: &Pagination, _has_order_by: bool) -> String {
+        format!(
+            "{} LIMIT {} OFFSET {}",
+            sql, pagination.limit, pagination.offset
         )
     }
 }
