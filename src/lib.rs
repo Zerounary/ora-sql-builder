@@ -2,5 +2,7 @@ pub mod portal_provider;
 pub mod portal_provider_adapter;
 pub mod engine;
 pub mod metadata;
+pub mod metadata_mapping;
+pub mod metadata_plan;
 pub mod metadata_driver;
 pub mod sql;
