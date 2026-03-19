@@ -1,65 +1,74 @@
-# Execution Layer Overview
+# 执行层概述
 
-## Purpose
+## 目标定位
 
-The `execution` layer is the runtime bridge between metadata/engine planning output and real database operations.
-It owns datasource registration, SQL preview, SQL execution, row materialization, and schema/catalog persistence execution.
+`execution` 层是项目中的运行时落地层，负责把上游已经准备好的计划、请求和 SQL 输出真正作用到数据库上。
 
-It should remain a runtime adapter layer, not a business modeling layer.
+它的核心职责不是定义业务语义，而是解决以下问题：
 
-## Current Structure
+- 应该连接哪个数据源。
+- 应该用什么方言预览 SQL。
+- 如何把参数绑定到查询中。
+- 如何执行查询、写入、删除、建表与 metadata 持久化。
+- 如何把数据库结果转换为统一的结果模型。
 
-The execution layer now lives under `src/execution/`.
+因此，这一层本质上是“运行时适配器层”，而不是“业务建模层”。
+
+## 当前结构
+
+执行层位于 `src/execution/` 下，当前已经拆分为以下模块：
 
 - **`mod.rs`**
-  Re-export entry for execution APIs.
+  统一导出执行层公共 API。
 
 - **`context.rs`**
-  Runtime context and options such as `ExecutionContext`, `ExecutionMode`, `ExecutionOptions`.
+  定义 `ExecutionContext`、`ExecutionMode`、`ExecutionOptions` 等运行时上下文对象。
 
 - **`datasource.rs`**
-  Datasource registry and pool management via `DatasourceManager`.
+  定义 `DatasourceManager`，负责数据源连接池注册、获取与健康检查。
 
 - **`error.rs`**
-  Shared execution-layer error types.
+  定义执行层统一错误类型，避免把底层错误直接向上泄漏为零散实现细节。
 
 - **`results.rs`**
-  Query/write/delete/schema/catalog execution result models.
+  定义查询、写入、删除、模式、metadata catalog 等执行结果模型。
 
 - **`helpers.rs`**
-  Runtime helper functions such as dialect selection, row binding, row decoding, schema-plan helpers.
+  放置运行时辅助逻辑，例如方言选择、参数绑定、行转 JSON、SQLite 兼容处理、schema 辅助构建等。
 
 - **`executors.rs`**
-  Actual executors for query, write, delete, schema, and metadata catalog persistence.
+  定义真正执行操作的执行器，如查询执行器、写入执行器、删除执行器、模式执行器、metadata catalog 执行器。
 
 - **`tests.rs`**
-  SQLite-backed execution verification.
+  执行层验证入口，当前以 SQLite 为主做真实运行时校验。
 
-## Main Runtime Concepts
+## 关键运行时对象
 
 ### DatasourceManager
 
-Manages connection pools keyed by metadata datasource id.
+`DatasourceManager` 是执行层最基础的运行时资源管理对象，负责按元数据数据源 ID 管理连接池。
 
-Responsibilities:
+它主要负责：
 
-- register datasource pools
-- fetch pools by datasource id
-- run basic health checks
+- 注册连接池。
+- 获取指定数据源的连接池。
+- 做基础健康检查。
+
+这意味着执行层在真正执行 SQL 之前，不需要自己重新推导数据源，只需要通过 metadata 中的数据源标识查找对应池即可。
 
 ### ExecutionContext
 
-Bundles three things together:
+`ExecutionContext` 是一次执行调用的边界对象，通常会把以下信息组合在一起：
 
-- datasource manager
-- target datasource metadata
-- execution options
+- `DatasourceManager`
+- 当前目标数据源元数据
+- 执行选项
 
-This object defines the runtime boundary for an execution call.
+这样做的好处是，执行器不需要到处拼装环境信息，而是可以依赖一个统一上下文完成预览与执行。
 
-### Executors
+### 各类 Executor
 
-The layer currently exposes:
+当前执行层主要包含：
 
 - `QueryPlanExecutor`
 - `WritePlanExecutor`
@@ -67,58 +76,114 @@ The layer currently exposes:
 - `SchemaPlanExecutor`
 - `MetadataCatalogExecutor`
 
-Each executor supports preview behavior and real execution behavior.
+这些执行器的职责划分比较清晰：
 
-## Core Invariants
+- 查询执行器关注读取与结果集转换。
+- 写入/删除执行器关注受影响行数和执行反馈。
+- 模式执行器关注建表、改表、删表等结构操作。
+- metadata catalog 执行器关注把 catalog 持久化到标准 metadata 表。
 
-- **Preview and execution must stay behaviorally aligned**
-  Dry-run output should match the SQL that would be executed.
+## 执行层负责什么
 
-- **Datasource kind determines dialect binding**
-  Execution should not guess dialect behavior outside the datasource metadata.
+以下职责明确属于 `execution` 层：
 
-- **Execution layer should not reinvent planning**
-  It consumes plans and metadata requests from upstream layers instead of re-deriving business semantics.
+- **数据源连接管理**
+  负责连接池的维护和定位。
 
-- **SQLite normalization remains explicit**
-  Any runtime SQL normalization, such as `sysdate` replacement, should stay centralized and auditable.
+- **SQL 预览与实际执行桥接**
+  同一套上游输入既可以用于 dry-run，也可以用于真实执行。
 
-## Typical Data Flow
+- **参数绑定**
+  将 `BuiltQuery` 中的参数顺序与实际数据库驱动绑定逻辑对应起来。
 
-1. Upstream builds a `QueryPlan`, `WritePlan`, `DeletePlan`, `SchemaPlan`, or `MetadataCatalog`.
-2. Executor previews dialect-specific SQL.
-3. If not in dry-run mode, execution binds parameters and runs through `sqlx`.
-4. Results are converted into layer-specific result models.
+- **数据库结果解码**
+  将查询结果行转成统一 JSON/结果模型，供上层继续处理。
 
-## What Belongs Here
+- **运行时兼容性处理**
+  例如 SQLite 对 `sysdate` 等表达式的兼容修正，应在这里集中处理。
 
-- Pool registration.
-- Runtime SQL normalization.
-- Parameter binding.
-- Result decoding.
-- Schema execution.
-- Metadata catalog persistence execution.
+- **schema 与 metadata 落库执行**
+  包括标准 metadata 表创建、catalog 快照持久化等。
 
-## What Does Not Belong Here
+## 执行层不负责什么
 
-- Modeling metadata entities.
-- Deciding field visibility rules.
-- Defining import/export semantics.
-- Constructing high-level business requests.
+以下职责不应该下沉到 `execution` 层：
 
-## Extension Guidance
+- **定义元数据结构**
+  表、字段、关系、权限规则不应由执行层建模。
 
-When extending execution behavior:
+- **重新解释业务请求**
+  哪些字段可见、哪些字段可写，应由 `metadata` 和 `metadata_plan` 决定。
 
-1. Decide whether the change belongs in executor orchestration, helper logic, or datasource management.
-2. Keep all datasource-specific render decisions behind dialect resolution.
-3. Prefer adding new result models over overloading existing ones with unrelated fields.
-4. Add SQLite execution coverage when the change affects runtime binding or result decoding.
-5. Add preview assertions when the change affects generated SQL.
+- **重新组装 SQL 语义**
+  SQL 的主体结构应由 `engine` 和 `metadata_driver` 决定，执行层不应再次发明查询语义。
 
-## High-Risk Areas
+- **导入导出规则设计**
+  这些属于 metadata 层的治理与能力建模，不属于运行时执行器。
 
-- Divergence between preview SQL and actual executed SQL.
-- Inconsistent row decoding across database types.
-- Hidden datasource-kind assumptions outside `dialect_for`.
-- Spreading transaction handling logic across too many places.
+## 核心设计约束
+
+- **预览与执行必须一致**
+  dry-run 看到的 SQL 应与真实执行尽可能一致，否则排障成本会非常高。
+
+- **方言由数据源决定**
+  执行层不应绕过数据源 metadata 猜测数据库类型，所有方言选择都应集中处理。
+
+- **不重复规划**
+  上游已经给出计划或请求时，执行层应消费它们，而不是再次推导业务语义。
+
+- **兼容性修正必须集中**
+  像 SQLite 标准化、特殊函数替换等逻辑应保持集中，便于测试与审计。
+
+## 典型数据流
+
+一个典型执行流程如下：
+
+1. 上游准备 `QueryPlan`、`WritePlan`、`DeletePlan`、`SchemaPlan` 或 `MetadataCatalog`。
+2. 执行器根据数据源类型选择方言并预览 SQL。
+3. 如果是 dry-run，则直接返回预览结果。
+4. 如果是真实执行，则获取连接池并绑定参数。
+5. 执行完成后，将结果转换为统一结果模型返回。
+
+在当前项目中，最常见的链路是：
+
+- `metadata_driver` 先生成 SQL。
+- `execution` 负责真正连接数据库并执行。
+- 执行结果再返回给上层调用方或测试用例。
+
+## 扩展建议
+
+当需要扩展执行层能力时，建议优先判断修改属于哪一类：
+
+1. **资源管理问题**
+   如新增数据源注册方式、健康检查、池复用策略，通常归 `datasource.rs`。
+
+2. **执行编排问题**
+   如新增某类执行器、调整 dry-run/execute 分支，一般归 `executors.rs`。
+
+3. **运行时兼容问题**
+   如某数据库类型需要特殊绑定或 SQL 标准化，通常归 `helpers.rs`。
+
+4. **结果建模问题**
+   如需要返回更多执行信息，应优先扩展 `results.rs`，不要把无关字段硬塞进已有结果模型。
+
+## 推荐测试点
+
+以下变更最适合在执行层增加测试：
+
+- 新增或修改参数绑定逻辑。
+- 新增 SQLite 兼容修正逻辑。
+- 变更查询结果解码方式。
+- 变更 schema 执行与 metadata catalog 持久化行为。
+- 变更 dry-run 与 execute 的分支流程。
+
+## 常见风险点
+
+- 预览 SQL 与实际执行 SQL 不一致。
+- 不同数据库下的结果解码行为不一致。
+- 方言选择逻辑分散，导致隐藏的数据源假设。
+- 事务或连接处理逻辑分散到多个位置，后续难以维护。
+
+## 一句话总结
+
+`execution` 层的价值，不在于表达业务，而在于把上游已经结构化好的能力稳定、可测试地落到真实数据库运行时中。

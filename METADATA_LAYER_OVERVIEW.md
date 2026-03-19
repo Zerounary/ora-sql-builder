@@ -1,36 +1,45 @@
-# Metadata Layer Overview
+# 元数据层概述
 
-## Purpose
+## 目标定位
 
-The `metadata` layer describes the business system in a platform-neutral way.
-It is the semantic center of the project: tables, columns, relations, policies, import/export profiles, and runtime request models are all defined here or derived from here.
+`metadata` 层是项目的语义中心，负责用平台无关的方式描述系统结构、字段能力、关系、策略和运行时请求。
 
-This layer is responsible for turning business intent into structured metadata, not into executed SQL.
+这层不直接执行 SQL，也不管理连接池，而是回答两个核心问题：
 
-## Current Structure
+- 系统里有什么对象、字段、关系和治理规则。
+- 当前请求希望对这些对象做什么。
 
-The metadata-related code is mainly distributed across the following modules:
+如果说：
+
+- `engine` 负责“SQL 怎么生成”；
+- `execution` 负责“SQL 怎么执行”；
+
+那么 `metadata` 负责的就是“业务语义如何被结构化表达”。
+
+## 当前结构
+
+元数据相关代码主要分布在以下模块：
 
 - **`src/metadata/`**
-  Core metadata model definitions.
+  核心元数据模型定义，包含字段、过滤器、目录实体、标准 schema 等基础结构。
 
 - **`src/metadata_driver/`**
-  Translates `MetadataQueryRequest` into engine-level SQL builders and final `BuiltQuery` output.
+  将 `MetadataQueryRequest` 转换为引擎层可消费的 SQL 构建输入和 `BuiltQuery`。
 
 - **`src/metadata_plan/`**
-  Builds runtime planning models such as permission plan, query plan, write plan, delete plan, and schema plan.
+  将请求整理为更靠近执行阶段的计划模型，如查询计划、写入计划、删除计划、权限计划和模式计划。
 
 - **`src/metadata_mapping/`**
-  Converts platform metadata catalog objects into persistence snapshots for standard metadata tables.
+  将目录对象映射为标准元数据表的持久化快照，支撑 metadata 自身落库。
 
 - **`src/metadata_demo.rs`**
-  Demo metadata fixtures and scenario constructors used by examples and stability tests.
+  提供示例场景和稳定性验证样本，用于验证 metadata 设计的可用性与一致性。
 
-## Metadata Subdomains
+## 元数据子域
 
-### Catalog Domain
+### 目录域
 
-The catalog domain defines platform-level metadata entities such as:
+目录域定义平台级元数据实体，例如：
 
 - `MetaDatasource`
 - `MetaTable`
@@ -41,90 +50,85 @@ The catalog domain defines platform-level metadata entities such as:
 - `MetaExportProfile`
 - `MetadataCatalog`
 
-These types answer the question:
+这些类型回答的是：**系统结构与治理模型是什么。**
 
-**What is the system structure and governance model?**
+### 请求域
 
-### Request Domain
+请求域由 `MetadataQueryRequest`、`MetadataField`、`MetadataFilterExpr`、`MetadataQueryOptions` 等组成。
 
-Request-side metadata models such as `MetadataQueryRequest`, `MetadataField`, `MetadataFilterExpr`, and `MetadataQueryOptions` answer:
+它回答的是：**调用者当前要查什么、写什么、过滤什么。**
 
-**What is the caller trying to do right now?**
+### 模式域
 
-### Schema Domain
+`MetadataTableSchema`、`MetadataColumnSchema`、`MetadataForeignKeySchema` 和 `standard_metadata_tables()` 用于回答：**元数据本身应该如何标准化存储。**
 
-`MetadataTableSchema`, `MetadataColumnSchema`, `MetadataForeignKeySchema`, and `standard_metadata_tables()` answer:
+### 运行时规划域
 
-**How should metadata itself be stored and provisioned?**
+`metadata_plan` 负责把请求整理为更适合执行层消费的计划模型。
 
-### Runtime Planning Domain
+它回答的是：**这次操作涉及哪些字段、关系、权限和写入规则。**
 
-`metadata_plan` translates requests into execution-oriented planning models while still staying metadata-centric.
+### 持久化映射域
 
-It answers:
+`metadata_mapping` 将目录对象转换为标准元数据持久化快照。
 
-**Given a request, what fields, permissions, relations, assignments, and filters should downstream layers honor?**
+它回答的是：**目录对象如何映射到标准化 metadata 表集。**
 
-### Persistence Mapping Domain
+## 核心设计约束
 
-`metadata_mapping` translates catalog objects into standard metadata persistence rows.
+- **元数据是行为来源**
+  可查询字段、可写字段、导入导出能力和治理规则应尽量由元数据推导，而不是散落在执行代码里。
 
-It answers:
+- **请求必须保持结构化**
+  不要过早把请求折叠成原始 SQL，否则后续计划、权限和兼容性都会变差。
 
-**How do catalog objects map into the standardized metadata table set?**
+- **目录与请求必须分层**
+  目录描述系统静态结构；请求描述一次动态操作，二者不能混写。
 
-## Core Invariants
+- **持久化映射必须确定**
+  相同目录应生成相同快照，方便回归测试和后续迁移。
 
-- **Metadata is the source of truth for system behavior**
-  Queryable fields, writable fields, import/export capabilities, and governance rules should be derivable from metadata.
+## 典型数据流
 
-- **Runtime requests stay structured**
-  Do not collapse metadata requests into raw SQL too early.
+1. 先用 catalog 模型描述系统结构。
+2. 再用 request 模型描述本次操作。
+3. `metadata_plan` 抽取运行时计划信息。
+4. `metadata_driver` 把请求翻译成引擎层 SQL 输出。
+5. 如需落库 metadata 本身，则通过 `metadata_mapping` 生成标准持久化快照。
+6. 最终由 `execution` 选择是否执行。
 
-- **Catalog and request models are separate concerns**
-  Catalog describes the system; request describes an operation on the system.
+## 这层负责什么
 
-- **Persistence mapping should be deterministic**
-  The same catalog should always produce the same persistence snapshot.
+- 平台级元数据实体。
+- 请求模型与过滤表达式。
+- 标准 metadata 存储 schema。
+- 目录到持久化快照的映射。
+- 元数据驱动的 SQL 翻译入口。
+- 示例数据与稳定性验证基线。
 
-## Typical Data Flow
+## 这层不负责什么
 
-1. A business scenario is modeled as catalog entities and request metadata.
-2. `metadata_plan` extracts runtime planning information.
-3. `metadata_driver` turns request metadata into engine SQL output.
-4. `metadata_mapping` persists catalog metadata into standard metadata tables when needed.
-5. `execution` optionally executes the planned output.
+- 真实数据库连接与连接池。
+- 事务与驱动安装。
+- SQL 参数绑定与结果解码。
+- 环境基础设施和部署逻辑。
 
-## What Belongs Here
+## 扩展建议
 
-- Platform metadata entities.
-- Request and filter AST models.
-- Standard metadata storage schema.
-- Catalog-to-persistence mapping.
-- Metadata-driven SQL translation.
-- Demo metadata fixtures and stability coverage.
+新增业务能力时，建议按以下顺序推进：
 
-## What Does Not Belong Here
+1. 先判断这是目录建模问题、请求表达问题，还是计划/持久化问题。
+2. 优先扩展 `metadata` 模型本身，再决定是否需要调整 `metadata_plan`。
+3. 只有元数据契约稳定后，再修改 `metadata_driver`。
+4. 同步补 `metadata_demo.rs` 和稳定性测试，避免设计漂移。
 
-- SQL placeholder binding.
-- Pool management.
-- Transaction handling.
-- Driver installation.
-- Environment-specific infrastructure concerns.
+## 常见风险点
 
-## Extension Guidance
+- 混淆 catalog 语义与 request 语义。
+- 把业务规则直接写死到执行层，而不是通过 metadata 表达。
+- 让示例数据结构反向污染通用模型设计。
+- 让持久化映射依赖不稳定的字符串约定。
 
-When introducing a new business capability:
+## 一句话总结
 
-1. Define whether it is a catalog concern, request concern, planning concern, or persistence concern.
-2. Extend the metadata model first.
-3. Add or adapt runtime planning structures if the capability affects execution semantics.
-4. Extend `metadata_driver` only after the metadata contract is stable.
-5. Extend stability fixtures in `metadata_demo.rs` and tests in `tests/metadata_stability.rs`.
-
-## High-Risk Areas
-
-- Mixing request semantics with persistence semantics.
-- Encoding business rules directly into execution code instead of metadata.
-- Letting one-off demo assumptions leak into generic metadata abstractions.
-- Making persistence mapping depend on unstable string formatting rules.
+`metadata` 层不是 SQL 层的附属物，而是整个系统“可配置、可扩展、可由 AI 驱动生成”的核心抽象层。
