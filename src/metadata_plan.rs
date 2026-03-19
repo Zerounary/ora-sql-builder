@@ -66,6 +66,7 @@ pub struct RelationPlan {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct QueryPlan {
+    pub source_request: MetadataQueryRequest,
     pub table: String,
     pub table_alias: String,
     pub target_id: Option<MetadataId>,
@@ -119,6 +120,7 @@ impl QueryPlan {
             .collect();
 
         Self {
+            source_request: request.clone(),
             table: main_field
                 .real_table
                 .clone()
@@ -157,6 +159,7 @@ pub struct WriteAssignmentPlan {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct WritePlan {
+    pub source_request: MetadataQueryRequest,
     pub statement_type: StatementType,
     pub table: String,
     pub target_id: Option<MetadataId>,
@@ -185,6 +188,7 @@ impl WritePlan {
             .collect();
 
         Self {
+            source_request: request.clone(),
             statement_type: expected,
             table: main_field
                 .real_table
@@ -199,6 +203,7 @@ impl WritePlan {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DeletePlan {
+    pub source_request: MetadataQueryRequest,
     pub table: String,
     pub target_id: Option<MetadataId>,
     pub filters: Vec<MetadataFilterExpr>,
@@ -212,6 +217,7 @@ impl DeletePlan {
             .first()
             .expect("metadata request requires at least one field");
         Self {
+            source_request: request.clone(),
             table: main_field
                 .real_table
                 .clone()

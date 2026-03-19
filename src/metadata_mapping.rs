@@ -49,6 +49,15 @@ impl MetadataPersistenceMapper {
                         json!(database_kind_code(&datasource.database_kind)),
                     ),
                     ("dsn".to_string(), json!(datasource.connection_uri)),
+                    (
+                        "default_schema".to_string(),
+                        datasource
+                            .default_schema
+                            .as_ref()
+                            .map(|value| json!(value))
+                            .unwrap_or(Value::Null),
+                    ),
+                    ("options".to_string(), datasource.options.clone()),
                     ("enabled".to_string(), json!(datasource.enabled)),
                 ],
             });
@@ -71,6 +80,9 @@ impl MetadataPersistenceMapper {
                         "primary_key_strategy".to_string(),
                         json!(primary_key_strategy_code(&table.primary_key_strategy)),
                     ),
+                    ("logical_delete".to_string(), json!(table.logical_delete)),
+                    ("audit_enabled".to_string(), json!(table.audit_enabled)),
+                    ("default_sort".to_string(), json!(table.default_sort)),
                 ],
             });
         }
@@ -89,6 +101,18 @@ impl MetadataPersistenceMapper {
                         json!(column.column_type.sql_type()),
                     ),
                     ("nullable".to_string(), json!(column.nullable)),
+                    ("queryable".to_string(), json!(column.queryable)),
+                    ("editable".to_string(), json!(column.editable)),
+                    ("sortable".to_string(), json!(column.sortable)),
+                    ("primary_key".to_string(), json!(column.primary_key)),
+                    (
+                        "default_value_sql".to_string(),
+                        column
+                            .default_value_sql
+                            .as_ref()
+                            .map(|value| json!(value))
+                            .unwrap_or(Value::Null),
+                    ),
                 ],
             });
         }
@@ -105,6 +129,16 @@ impl MetadataPersistenceMapper {
                         json!(relation_kind_code(&relation.relation_kind)),
                     ),
                     ("join_type".to_string(), json!(relation.join_type)),
+                    ("left_column".to_string(), json!(relation.left_column)),
+                    ("right_column".to_string(), json!(relation.right_column)),
+                    (
+                        "bridge_table".to_string(),
+                        relation
+                            .bridge_table
+                            .as_ref()
+                            .map(|value| json!(value))
+                            .unwrap_or(Value::Null),
+                    ),
                 ],
             });
         }
@@ -124,6 +158,7 @@ impl MetadataPersistenceMapper {
                         "policy_expr".to_string(),
                         json!(policy.filter.as_ref().map(filter_expr_text)),
                     ),
+                    ("enabled".to_string(), json!(policy.enabled)),
                 ],
             });
         }

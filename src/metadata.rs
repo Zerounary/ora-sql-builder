@@ -589,6 +589,8 @@ pub fn standard_metadata_tables() -> Vec<MetadataTableSchema> {
             .column(MetadataColumnSchema::new("name", MetadataColumnType::Varchar(128)).not_null())
             .column(MetadataColumnSchema::new("db_type", MetadataColumnType::Varchar(32)).not_null())
             .column(MetadataColumnSchema::new("dsn", MetadataColumnType::Text).not_null())
+            .column(MetadataColumnSchema::new("default_schema", MetadataColumnType::Varchar(64)))
+            .column(MetadataColumnSchema::new("options", MetadataColumnType::Json).not_null())
             .column(
                 MetadataColumnSchema::new("enabled", MetadataColumnType::Boolean)
                     .not_null()
@@ -604,6 +606,10 @@ pub fn standard_metadata_tables() -> Vec<MetadataTableSchema> {
             .column(MetadataColumnSchema::new("table_code", MetadataColumnType::Varchar(64)).not_null())
             .column(MetadataColumnSchema::new("table_name", MetadataColumnType::Varchar(128)).not_null())
             .column(MetadataColumnSchema::new("display_name", MetadataColumnType::Varchar(128)).not_null())
+            .column(MetadataColumnSchema::new("primary_key_strategy", MetadataColumnType::Varchar(64)).not_null())
+            .column(MetadataColumnSchema::new("logical_delete", MetadataColumnType::Boolean).not_null())
+            .column(MetadataColumnSchema::new("audit_enabled", MetadataColumnType::Boolean).not_null())
+            .column(MetadataColumnSchema::new("default_sort", MetadataColumnType::Json).not_null())
             .column(
                 MetadataColumnSchema::new("enabled", MetadataColumnType::Boolean)
                     .not_null()
@@ -624,6 +630,11 @@ pub fn standard_metadata_tables() -> Vec<MetadataTableSchema> {
             .column(MetadataColumnSchema::new("display_name", MetadataColumnType::Varchar(128)).not_null())
             .column(MetadataColumnSchema::new("data_type", MetadataColumnType::Varchar(32)).not_null())
             .column(MetadataColumnSchema::new("nullable", MetadataColumnType::Boolean).not_null())
+            .column(MetadataColumnSchema::new("queryable", MetadataColumnType::Boolean).not_null())
+            .column(MetadataColumnSchema::new("editable", MetadataColumnType::Boolean).not_null())
+            .column(MetadataColumnSchema::new("sortable", MetadataColumnType::Boolean).not_null())
+            .column(MetadataColumnSchema::new("primary_key", MetadataColumnType::Boolean).not_null())
+            .column(MetadataColumnSchema::new("default_value_sql", MetadataColumnType::Text))
             .primary_key(vec!["id"])
             .unique_key(vec!["table_id", "column_code"])
             .foreign_key(
@@ -637,6 +648,9 @@ pub fn standard_metadata_tables() -> Vec<MetadataTableSchema> {
             .column(MetadataColumnSchema::new("right_table_id", MetadataColumnType::BigInt).not_null())
             .column(MetadataColumnSchema::new("relation_type", MetadataColumnType::Varchar(32)).not_null())
             .column(MetadataColumnSchema::new("join_type", MetadataColumnType::Varchar(16)).not_null())
+            .column(MetadataColumnSchema::new("left_column", MetadataColumnType::Varchar(64)).not_null())
+            .column(MetadataColumnSchema::new("right_column", MetadataColumnType::Varchar(64)).not_null())
+            .column(MetadataColumnSchema::new("bridge_table", MetadataColumnType::Varchar(128)))
             .primary_key(vec!["id"])
             .foreign_key(
                 MetadataForeignKeySchema::new(vec!["left_table_id"], "meta_table", vec!["id"])
@@ -654,6 +668,7 @@ pub fn standard_metadata_tables() -> Vec<MetadataTableSchema> {
             .column(MetadataColumnSchema::new("policy_code", MetadataColumnType::Varchar(64)).not_null())
             .column(MetadataColumnSchema::new("policy_type", MetadataColumnType::Varchar(32)).not_null())
             .column(MetadataColumnSchema::new("policy_expr", MetadataColumnType::Text).not_null())
+            .column(MetadataColumnSchema::new("enabled", MetadataColumnType::Boolean).not_null())
             .primary_key(vec!["id"])
             .unique_key(vec!["table_id", "policy_code"])
             .foreign_key(
