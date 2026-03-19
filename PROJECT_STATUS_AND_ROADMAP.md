@@ -494,14 +494,32 @@ SQLite 的接入意义不仅是补齐一个方言，更重要的是为未来：
 
 ### 阶段一：底座稳定化
 
-目标：把当前仓库中的 SQL 生成基础完全稳定下来。
+目标：把当前仓库中的 SQL / Metadata / DDL 基础能力收束为一个稳定、可验证、可继续迁移的平台底座。
 
-建议工作：
+当前判断：阶段一已完成大半，现已从“搭骨架”进入“收口与统一抽象”阶段。
 
-- 完善 `engine` 的谓词树和表达式模型
-- 完善 `metadata_driver` 的过滤、聚合、关系能力
-- 为新元数据驱动补足更多测试
-- 继续减少 `portal_provider` 的核心职责
+本阶段已完成：
+
+- `engine` 已完成模块化拆分，并支持 MySQL / PostgreSQL / Oracle / SQL Server / SQLite
+- `engine` 已支持 `SELECT / INSERT / UPDATE / DELETE` 与元数据驱动 DDL Builder
+- `engine` 已补齐 `!=`、`>`、`>=`、`<`、`<=`、`LIKE`、`IN`、`BETWEEN`、`EXISTS` 等核心过滤能力
+- `metadata` 已建立强类型字段模型，`metadata_driver` 已拆分为 `context / driver / filters / helpers`
+- 已补齐多数据库 CRUD examples、SQLite example、元数据治理 example
+- 已完成阶段性验证，当前测试与 examples 编译均通过
+
+本阶段剩余工作：
+
+- 将过滤模型从基于 `Value` 的运行时推断，升级为显式过滤 AST
+- 为 `metadata_driver` 增加更完整的聚合、HAVING、复杂条件树与关系组合能力
+- 建立 `portal_provider -> metadata` 的适配桥，继续降低旧入口的重要性
+- 将 DDL Builder 与未来标准元数据表结构进一步对齐，避免形成第二套独立 schema 描述方式
+
+阶段一验收标准建议调整为：
+
+- `engine` 在 DML + DDL 两类场景下都具备稳定的多方言构建能力
+- `metadata_driver` 能覆盖当前主流查询、写入、权限过滤、导入导出示例场景
+- `portal_provider` 不再承担新增能力演进，只保留兼容职责
+- 测试、examples、文档三者对外表达一致，能够作为阶段二建模工作的稳定基座
 
 ### 阶段二：统一元数据平台模型
 

@@ -1,7 +1,7 @@
 use ora_sql_builder::engine::{BuiltQuery, PostgresDialect};
 use ora_sql_builder::metadata::{
-    FieldSource, LinkReference, LinkStep, MetadataField, MetadataQueryOptions, MetadataQueryRequest,
-    SortDirection,
+    FieldSource, LinkReference, LinkStep, MetadataField, MetadataFilterExpr,
+    MetadataQueryOptions, MetadataQueryRequest, SortDirection,
 };
 use ora_sql_builder::metadata_driver::MetadataSqlDriver;
 use ora_sql_builder::sql::StatementType;
@@ -22,16 +22,13 @@ fn main() {
             MetadataField::new("m_retail", FieldSource::Column("id".to_string())),
             MetadataField::new("m_retail", FieldSource::Column("name".to_string()))
                 .with_access("1")
-                .with_value(json!("旗舰 店"))
                 .with_sort(SortDirection::Asc)
                 .with_output_alias("name"),
             MetadataField::new("m_retail", FieldSource::Column("enabled".to_string()))
                 .with_access("1")
-                .with_value(json!(true))
                 .with_output_alias("enabled"),
             MetadataField::new("m_retail", FieldSource::Column("amt".to_string()))
                 .with_access("1")
-                .with_value(json!({"type": "between", "begin": 10, "end": 99}))
                 .with_output_alias("amt"),
             MetadataField::new("m_retail", FieldSource::Column("store_id".to_string()))
                 .with_access("1")
@@ -60,7 +57,19 @@ fn main() {
     .with_options(MetadataQueryOptions {
         table_filter: Some("tenant_id = 37".to_string()),
         ..Default::default()
-    });
+    })
+    .with_filters(vec![MetadataFilterExpr::and(vec![
+        MetadataFilterExpr::or(vec![
+            MetadataFilterExpr::like("name", "%旗舰%"),
+            MetadataFilterExpr::like("name", "%门店%"),
+        ]),
+        MetadataFilterExpr::eq("enabled", true),
+        MetadataFilterExpr::between("amt", 10, 99),
+        MetadataFilterExpr::exists(
+            "SELECT 1 FROM c_store s WHERE s.id = m_retail.store_id AND s.enabled = ?",
+            vec![json!("Y")],
+        ),
+    ])]);
 
     let grouped_request = MetadataQueryRequest::new(
         893,
@@ -78,7 +87,8 @@ fn main() {
     .with_options(MetadataQueryOptions {
         grouped: true,
         ..Default::default()
-    });
+    })
+    .with_having(vec![MetadataFilterExpr::gt("total_qty", 100)]);
 
     let insert_request = MetadataQueryRequest::new(
         893,

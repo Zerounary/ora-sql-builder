@@ -23,6 +23,7 @@ pub struct SelectBuilder {
     relations: Vec<Relation>,
     predicates: Vec<Predicate>,
     group_by: Vec<String>,
+    having: Vec<Predicate>,
     order_by: Vec<String>,
     pagination: Option<Pagination>,
 }
@@ -35,6 +36,7 @@ impl SelectBuilder {
             relations: Vec::new(),
             predicates: Vec::new(),
             group_by: Vec::new(),
+            having: Vec::new(),
             order_by: Vec::new(),
             pagination: None,
         }
@@ -63,6 +65,11 @@ impl SelectBuilder {
 
     pub fn group_by(mut self, expression: impl Into<String>) -> Self {
         self.group_by.push(expression.into());
+        self
+    }
+
+    pub fn having(mut self, predicate: Predicate) -> Self {
+        self.having.push(predicate);
         self
     }
 
@@ -112,6 +119,17 @@ impl SelectBuilder {
         if !self.group_by.is_empty() {
             sql.push_str(" GROUP BY ");
             sql.push_str(&self.group_by.join(", "));
+        }
+        if !self.having.is_empty() {
+            sql.push_str(" HAVING ");
+            sql.push_str(
+                &self
+                    .having
+                    .iter()
+                    .map(|predicate| predicate.render(dialect, &mut params))
+                    .collect::<Vec<_>>()
+                    .join(" AND "),
+            );
         }
         let has_order_by = !self.order_by.is_empty();
         if has_order_by {

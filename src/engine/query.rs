@@ -118,8 +118,12 @@ pub enum Predicate {
         upper: Value,
     },
     IsNull { field: String },
+    IsNotNull { field: String },
     Exists { sql: String, params: Vec<Value> },
     Custom { sql: String, params: Vec<Value> },
+    And(Vec<Predicate>),
+    Or(Vec<Predicate>),
+    Not(Box<Predicate>),
     Raw(String),
 }
 
@@ -198,6 +202,12 @@ impl Predicate {
         }
     }
 
+    pub fn is_not_null(field: impl Into<String>) -> Self {
+        Self::IsNotNull {
+            field: field.into(),
+        }
+    }
+
     pub fn exists(sql: impl Into<String>, params: Vec<Value>) -> Self {
         Self::Exists {
             sql: sql.into(),
@@ -210,6 +220,18 @@ impl Predicate {
             sql: sql.into(),
             params,
         }
+    }
+
+    pub fn and(predicates: Vec<Predicate>) -> Self {
+        Self::And(predicates)
+    }
+
+    pub fn or(predicates: Vec<Predicate>) -> Self {
+        Self::Or(predicates)
+    }
+
+    pub fn not(predicate: Predicate) -> Self {
+        Self::Not(Box::new(predicate))
     }
 
     pub fn raw(sql: impl Into<String>) -> Self {
@@ -262,6 +284,7 @@ impl Predicate {
                 push_param(dialect, params, upper.clone())
             ),
             Predicate::IsNull { field } => format!("{} IS NULL", field),
+            Predicate::IsNotNull { field } => format!("{} IS NOT NULL", field),
             Predicate::Exists {
                 sql,
                 params: custom_params,
@@ -273,9 +296,37 @@ impl Predicate {
                 sql,
                 params: custom_params,
             } => render_parameterized_sql(sql, custom_params, dialect, params),
+            Predicate::And(predicates) => render_group(predicates, "AND", dialect, params),
+            Predicate::Or(predicates) => render_group(predicates, "OR", dialect, params),
+            Predicate::Not(predicate) => {
+                format!("NOT ({})", predicate.render(dialect, params))
+            }
             Predicate::Raw(sql) => sql.clone(),
         }
     }
+}
+
+fn render_group(
+    predicates: &[Predicate],
+    operator: &str,
+    dialect: &dyn SqlDialect,
+    params: &mut Vec<Value>,
+) -> String {
+    if predicates.is_empty() {
+        return match operator {
+            "AND" => "1 = 1".to_string(),
+            _ => "1 = 0".to_string(),
+        };
+    }
+
+    format!(
+        "({})",
+        predicates
+            .iter()
+            .map(|predicate| predicate.render(dialect, params))
+            .collect::<Vec<_>>()
+            .join(&format!(" {} ", operator))
+    )
 }
 
 fn render_parameterized_sql(

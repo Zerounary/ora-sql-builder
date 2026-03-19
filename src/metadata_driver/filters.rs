@@ -1,6 +1,7 @@
 use serde_json::Value;
 
 use crate::engine::Predicate;
+use crate::metadata::{MetadataFilter, MetadataFilterExpr};
 
 use super::helpers::sanitize_filter_value;
 
@@ -46,4 +47,54 @@ pub(crate) fn object_predicates(
         }
     }
     list
+}
+
+pub(crate) fn predicate_from_filter_expr<F>(
+    filter: &MetadataFilterExpr,
+    resolve_target: &F,
+) -> Predicate
+where
+    F: Fn(&str) -> String,
+{
+    match filter {
+        MetadataFilterExpr::Field { field, filter } => {
+            field_predicate(resolve_target(field), filter)
+        }
+        MetadataFilterExpr::Exists { sql, params } => Predicate::exists(sql.clone(), params.clone()),
+        MetadataFilterExpr::Custom { sql, params } => Predicate::custom(sql.clone(), params.clone()),
+        MetadataFilterExpr::Raw(sql) => Predicate::raw(sql.clone()),
+        MetadataFilterExpr::And(filters) => Predicate::and(
+            filters
+                .iter()
+                .map(|filter| predicate_from_filter_expr(filter, resolve_target))
+                .collect(),
+        ),
+        MetadataFilterExpr::Or(filters) => Predicate::or(
+            filters
+                .iter()
+                .map(|filter| predicate_from_filter_expr(filter, resolve_target))
+                .collect(),
+        ),
+        MetadataFilterExpr::Not(filter) => {
+            Predicate::not(predicate_from_filter_expr(filter, resolve_target))
+        }
+    }
+}
+
+fn field_predicate(target: String, filter: &MetadataFilter) -> Predicate {
+    match filter {
+        MetadataFilter::Eq(value) => Predicate::eq(target, value.clone()),
+        MetadataFilter::Ne(value) => Predicate::ne(target, value.clone()),
+        MetadataFilter::Gt(value) => Predicate::gt(target, value.clone()),
+        MetadataFilter::Gte(value) => Predicate::gte(target, value.clone()),
+        MetadataFilter::Lt(value) => Predicate::lt(target, value.clone()),
+        MetadataFilter::Lte(value) => Predicate::lte(target, value.clone()),
+        MetadataFilter::Like(value) => Predicate::like(target, value.clone()),
+        MetadataFilter::In(values) => Predicate::in_list(target, values.clone()),
+        MetadataFilter::Between { lower, upper } => {
+            Predicate::between(target, lower.clone(), upper.clone())
+        }
+        MetadataFilter::IsNull => Predicate::is_null(target),
+        MetadataFilter::IsNotNull => Predicate::is_not_null(target),
+    }
 }

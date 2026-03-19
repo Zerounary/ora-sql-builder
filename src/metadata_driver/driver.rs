@@ -10,7 +10,7 @@ use crate::metadata::{
 use crate::sql::StatementType;
 
 use super::context::{build_link_context, LinkContext};
-use super::filters::{object_predicates, string_predicates};
+use super::filters::{object_predicates, predicate_from_filter_expr, string_predicates};
 use super::helpers::{assignment_sql, push_unique, Assignment};
 
 pub struct MetadataSqlDriver {
@@ -55,6 +55,10 @@ impl MetadataSqlDriver {
 
         for predicate in self.select_predicates(&link_context) {
             builder = builder.predicate(predicate);
+        }
+
+        for predicate in self.having_predicates(&link_context) {
+            builder = builder.having(predicate);
         }
 
         if self.request.options.grouped {
@@ -232,6 +236,10 @@ impl MetadataSqlDriver {
             }
         }
 
+        predicates.extend(self.request.filters.iter().map(|filter| {
+            predicate_from_filter_expr(filter, &|field| self.named_filter_target(field, link_context))
+        }));
+
         for field in self.request.fields.iter().filter(|field| field.value.is_some()) {
             let target = self.filter_target(field, link_context);
             match field.value.as_ref().unwrap() {
@@ -251,6 +259,16 @@ impl MetadataSqlDriver {
         }
 
         predicates
+    }
+
+    fn having_predicates(&self, link_context: &LinkContext) -> Vec<Predicate> {
+        self.request
+            .having
+            .iter()
+            .map(|filter| {
+                predicate_from_filter_expr(filter, &|field| self.named_filter_target(field, link_context))
+            })
+            .collect()
     }
 
     fn group_by_expressions(&self, link_context: &LinkContext) -> Vec<String> {
@@ -304,6 +322,18 @@ impl MetadataSqlDriver {
                 format!("{}.{}", link_context.alias_for(link), link.target_column)
             }
         }
+    }
+
+    fn named_filter_target(&self, field_name: &str, link_context: &LinkContext) -> String {
+        if let Some(field) = self.request.fields.iter().find(|candidate| {
+            candidate.output_alias.as_deref() == Some(field_name)
+                || candidate.output_name() == field_name
+                || candidate.source_column() == Some(field_name)
+        }) {
+            return self.filter_target(field, link_context);
+        }
+
+        field_name.to_string()
     }
 
     fn main_table_ref(&self, alias_real_table: bool) -> TableRef {

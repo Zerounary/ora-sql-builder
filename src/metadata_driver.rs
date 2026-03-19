@@ -10,8 +10,8 @@ mod tests {
     use super::*;
     use crate::engine::PostgresDialect;
     use crate::metadata::{
-        FieldSource, LinkReference, LinkStep, MetadataField, MetadataQueryOptions,
-        MetadataQueryRequest, SortDirection,
+        FieldSource, LinkReference, LinkStep, MetadataField, MetadataFilterExpr,
+        MetadataQueryOptions, MetadataQueryRequest, SortDirection,
     };
     use crate::sql::StatementType;
     use serde_json::{json, Value};
@@ -241,5 +241,50 @@ mod tests {
             "DELETE FROM m_retail WHERE tenant_id = 37 AND id = $1".to_string()
         );
         assert_eq!(query.params, vec![json!(9)]);
+    }
+
+    #[test]
+    fn grouped_select_supports_explicit_filter_ast_and_having() {
+        let request = MetadataQueryRequest::new(
+            893,
+            StatementType::SELECT,
+            vec![
+                MetadataField::new("m_retail", FieldSource::Column("id".to_string())),
+                MetadataField::new("m_retail", FieldSource::Column("dept_name".to_string()))
+                    .with_access("1")
+                    .with_output_alias("dept_name"),
+                MetadataField::new("m_retail", FieldSource::Formula("sum(qty)".to_string()))
+                    .with_access("1")
+                    .with_output_alias("total_qty"),
+            ],
+        )
+        .with_options(MetadataQueryOptions {
+            grouped: true,
+            table_filter: Some("tenant_id = 37".to_string()),
+            ..Default::default()
+        })
+        .with_filters(vec![MetadataFilterExpr::and(vec![
+            MetadataFilterExpr::or(vec![
+                MetadataFilterExpr::eq("dept_name", "零售部"),
+                MetadataFilterExpr::eq("dept_name", "批发部"),
+            ]),
+            MetadataFilterExpr::not(MetadataFilterExpr::is_null("dept_name")),
+            MetadataFilterExpr::exists(
+                "SELECT 1 FROM c_store s WHERE s.id = m_retail.store_id AND s.enabled = ?",
+                vec![json!("Y")],
+            ),
+        ])])
+        .with_having(vec![MetadataFilterExpr::gt("total_qty", 100)]);
+
+        let query = MetadataSqlDriver::new(request).build(&PostgresDialect);
+
+        assert_eq!(
+            query.sql,
+            "SELECT m_retail.dept_name AS \"dept_name\", sum(qty) AS \"total_qty\" FROM m_retail WHERE tenant_id = 37 AND ((m_retail.dept_name = $1 OR m_retail.dept_name = $2) AND NOT (m_retail.dept_name IS NULL) AND EXISTS (SELECT 1 FROM c_store s WHERE s.id = m_retail.store_id AND s.enabled = $3)) GROUP BY m_retail.dept_name HAVING sum(qty) > $4 ORDER BY m_retail.dept_name".to_string()
+        );
+        assert_eq!(
+            query.params,
+            vec![json!("零售部"), json!("批发部"), json!("Y"), json!(100)]
+        );
     }
 }
